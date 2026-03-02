@@ -190,7 +190,6 @@ static char *build_tavily_payload(const char *query)
 {
     cJSON *root = cJSON_CreateObject();
     if (!root) return NULL;
-    cJSON_AddStringToObject(root, "api_key", s_tavily_key);
     cJSON_AddStringToObject(root, "query", query);
     cJSON_AddNumberToObject(root, "max_results", SEARCH_RESULT_COUNT);
     cJSON_AddBoolToObject(root, "include_answer", false);
@@ -315,6 +314,9 @@ static esp_err_t tavily_search_direct(const char *query, search_buf_t *sb)
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Accept", "application/json");
     esp_http_client_set_header(client, "Content-Type", "application/json");
+    char auth[192];
+    snprintf(auth, sizeof(auth), "Bearer %s", s_tavily_key);
+    esp_http_client_set_header(client, "Authorization", auth);
     esp_http_client_set_post_field(client, payload, strlen(payload));
 
     esp_err_t err = esp_http_client_perform(client);
@@ -347,9 +349,10 @@ static esp_err_t tavily_search_via_proxy(const char *query, search_buf_t *sb)
         "Host: api.tavily.com\r\n"
         "Accept: application/json\r\n"
         "Content-Type: application/json\r\n"
+        "Authorization: Bearer %s\r\n"
         "Content-Length: %d\r\n"
         "Connection: close\r\n\r\n",
-        (int)strlen(payload));
+        s_tavily_key, (int)strlen(payload));
 
     if (proxy_conn_write(conn, header, hlen) < 0 ||
         proxy_conn_write(conn, payload, strlen(payload)) < 0) {

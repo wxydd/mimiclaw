@@ -608,6 +608,78 @@ static int cmd_tool_exec(int argc, char **argv)
     return (err == ESP_OK) ? 0 : 1;
 }
 
+/* --- web_search command --- */
+static struct {
+    struct arg_str *query;
+    struct arg_end *end;
+} web_search_args;
+
+static bool json_escape_string(const char *in, char *out, size_t out_size)
+{
+    if (!in || !out || out_size == 0) return false;
+    size_t o = 0;
+    for (size_t i = 0; in[i] != '\0'; ++i) {
+        const char c = in[i];
+        const char *esc = NULL;
+        switch (c) {
+            case '\\': esc = "\\\\"; break;
+            case '\"': esc = "\\\""; break;
+            case '\n': esc = "\\n"; break;
+            case '\r': esc = "\\r"; break;
+            case '\t': esc = "\\t"; break;
+            default: break;
+        }
+        if (esc) {
+            size_t n = strlen(esc);
+            if (o + n >= out_size) return false;
+            memcpy(&out[o], esc, n);
+            o += n;
+            continue;
+        }
+        if ((unsigned char)c < 0x20) {
+            continue;
+        }
+        if (o + 1 >= out_size) return false;
+        out[o++] = c;
+    }
+    out[o] = '\0';
+    return true;
+}
+
+static int cmd_web_search(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&web_search_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, web_search_args.end, argv[0]);
+        return 1;
+    }
+
+    char escaped_query[512];
+    if (!json_escape_string(web_search_args.query->sval[0], escaped_query, sizeof(escaped_query))) {
+        printf("Query too long.\n");
+        return 1;
+    }
+
+    char input_json[640];
+    int n = snprintf(input_json, sizeof(input_json), "{\"query\":\"%s\"}", escaped_query);
+    if (n <= 0 || n >= (int)sizeof(input_json)) {
+        printf("Query too long.\n");
+        return 1;
+    }
+
+    char *output = calloc(1, 4096);
+    if (!output) {
+        printf("Out of memory.\n");
+        return 1;
+    }
+
+    esp_err_t err = tool_web_search_execute(input_json, output, 4096);
+    printf("web_search status: %s\n", esp_err_to_name(err));
+    printf("%s\n", output[0] ? output : "(empty)");
+    free(output);
+    return (err == ESP_OK) ? 0 : 1;
+}
+
 /* --- restart command --- */
 static int cmd_restart(int argc, char **argv)
 {
@@ -895,6 +967,17 @@ esp_err_t serial_cli_init(void)
         .func = &cmd_tool_exec,
     };
     esp_console_cmd_register(&tool_exec_cmd);
+
+    /* web_search */
+    web_search_args.query = arg_str1(NULL, NULL, "<query>", "Search query");
+    web_search_args.end = arg_end(1);
+    esp_console_cmd_t web_search_cmd = {
+        .command = "web_search",
+        .help = "Run web search tool directly (e.g. web_search \"latest esp-idf\")",
+        .func = &cmd_web_search,
+        .argtable = &web_search_args,
+    };
+    esp_console_cmd_register(&web_search_cmd);
 
     /* restart */
     esp_console_cmd_t restart_cmd = {
